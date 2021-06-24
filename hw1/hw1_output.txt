@@ -1,0 +1,22 @@
+
+
+Personal information (A-*): [5.5, 4.0, 5.2, 4.6]
+maxlambda: 3.999999999999999
+CI: -2.9605947323337506e-16
+RI: 0.89
+CR: -3.3265109352064613e-16
+judgment matrix is consistent
+
+Credit information (E-*): [8.0, 7.5, 3.5, 6.7, 4.7, 6.9, 2.1, 3.4, 5.5, 9.0]
+maxlambda: (10.000000000000004+0j)
+CI: (3.9474596431116675e-16+0j)
+RI: 1.49
+CR: (2.649301773900448e-16+0j)
+judgment matrix is consistent
+
+Major index categories (A, E): [6.5, 8.5]
+maxlambda: 2.0
+CI: 0.0
+RI: 0
+CR: nan
+judgment matrix is consistent
