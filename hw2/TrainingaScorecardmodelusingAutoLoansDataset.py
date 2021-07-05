@@ -90,6 +90,29 @@ def format_thousands(x,pos):
     return '{:,.0f}'.format(x,pos)
 formatter_thousands = FuncFormatter(format_thousands)
 
+
+# %%
+"""
+## Get Parameters 
+"""
+# # ...
+# import sys,argparse
+# from IPython.display import HTML
+# CONFIG_FILE = '.config_ipynb'
+# if os.path.isfile(CONFIG_FILE):
+#     with open(CONFIG_FILE) as f:
+#         sys.argv = f.read().split()
+# else:
+#     sys.argv = ['jupyter_args.py', 'input_file', '--int_param', '12']
+
+# parser = argparse.ArgumentParser()
+# parser.add_argument("input_file",help="Input image, directory, or npy.")
+# parser.add_argument("--int_param", type=int, default=4, help="an optional integer parameter.")
+# args = parser.parse_args()
+# p = args.int_param
+# print(args.input_file,p)
+
+
 # %%
 """
 ## Data Preparation
@@ -105,7 +128,7 @@ formatter_thousands = FuncFormatter(format_thousands)
 # dataset = fetch_california_housing() # Download dataset
 # __file__ = 'TrainingaScorecardmodelusingAutoLoansDataset.ipynb'
 # pPath = str(pathlib.Path(__file__).parent.absolute())
-pPath = 'c:/Users/Alex/Documents/GitHub/FICO-Internship/hw2'
+pPath = 'c:/Users/Alex/Documents/GitHub/FICO-Internship/hw2/'
 # print(pPath)
 dataset = pd.read_csv(os.path.join(pPath, 'AutoLoans.csv'), thousands=',')
 
@@ -126,6 +149,7 @@ print(dataset)
 # X0 = pd.DataFrame(dataset['data'],columns=dataset['feature_names'])
 
 X_excluded_columns = ['target','loanID','loanDateOpened',  'loanPerformance','loanPerformNum']
+sample_weight_col = 'sampwt'
 
 # target = 1 ONLY when loanPerformance = "Paid as agreed", loanPerformNum = 7
 
@@ -148,12 +172,27 @@ X0.info()
 """
 
 # %%
-features = list(X0.columns)
+# features = [i for i in X0.columns if i != sample_weight_col]
+features = X0.columns
 X_all, y_all = X0[features], dataset['target']
 
+# %%
+# with open('data_ch.pkl','wb') as f:
+#     pickle.dump([X_all,y_all],f,4)
+# with open('data_ch.pkl','rb') as f:
+#     X_all,y_all = pickle.load(f)
+# features = sorted(X_all.columns)
+
+# %%
+print(X_all.shape)
+print(y_all.shape)
+y_all.value_counts(normalize=True)
+
+
+
 NO_INFO_STR = 'No Info'
-NO_INFO_INT = -999
-NO_INFO_INTERVAL = '-inf~'+str(float(NO_INFO_INT))
+NO_INFO_NUM = -1e-3
+NO_INFO_INTERVAL = str(np.NINF)+'~'+str(float(NO_INFO_NUM))
 
 # %%
 """
@@ -175,7 +214,7 @@ def ordinal_encoder_create_dict(X, ordinal_features):
                 i = 0
                 for v in arr:
                     if NO_INFO_STR == v:
-                        ret[f][v], ret[f][NO_INFO_INT] = NO_INFO_INT, v
+                        ret[f][v], ret[f][NO_INFO_NUM] = NO_INFO_NUM, v
                     else:
                         ret[f][v], ret[f][i] = i, v
                     i += 1
@@ -211,13 +250,13 @@ def toggle_missing_encoder(X, features, missing_dict):
 
 
 # ordinal_missing_dict = {np.nan: NO_INFO_STR}
-numeric_missing_dict = {NO_INFO_STR:NO_INFO_STR, NO_INFO_STR:NO_INFO_INT} # np.nan: -999, 
+numeric_missing_dict = {NO_INFO_STR:NO_INFO_STR, NO_INFO_STR:NO_INFO_NUM} # np.nan: NO_INFO_NUM, 
 
 # print(X_all.loc[X_all.appOcc.isna(), :])
 # print(X_all.isna().sum())
 
 toggle_missing_encoder(X_all, ordinal_features, {np.nan: NO_INFO_STR}) # only do once for ordinal
-toggle_missing_encoder(X_all, numeric_features, {np.nan: NO_INFO_INT}) # np.nan: -999 <- only do once for numeric
+toggle_missing_encoder(X_all, numeric_features, {np.nan: NO_INFO_NUM}) # np.nan: NO_INFO_NUM <- only do once for numeric
 
 # print(X_all.loc[X_all.appOcc == NO_INFO_STR, :])
 # print(X_all.isna().sum())
@@ -237,7 +276,7 @@ toggle_ordinal_encoder(X_all, ordinal_encode_dict, ordinal_features)
 # print(X_all.loc[X_all.appOcc == ordinal_encode_dict['appOcc'][NO_INFO_STR], :])
 # print(X_all.isna().sum())
 
-# toggle_ordinal_encoder(X_all, ordinal_encode_dict, ordinal_features)
+# toggle_ordinal_encoder(X_all, ordinal_encode_dict, ordinal_features)  # test
 # print(X_all.loc[X_all.appOcc == NO_INFO_STR, :])
 # exit()
 
@@ -245,33 +284,29 @@ toggle_ordinal_encoder(X_all, ordinal_encode_dict, ordinal_features)
 
 
 
-# do after ##########################################################################################
-# toggle_missing_encoder(X_all, numeric_features, numeric_missing_dict)
-# toggle_ordinal_encoder(X_all, ordinal_encode_dict, ordinal_features)
-
-
 
 # %%
-# with open('data_ch.pkl','wb') as f:
-#     pickle.dump([X_all,y_all],f,4)
-# with open('data_ch.pkl','rb') as f:
-#     X_all,y_all = pickle.load(f)
-features = sorted(X_all.columns)
 
-# %%
-print(X_all.shape)
-print(y_all.shape)
-y_all.value_counts(normalize=True)
+def separate_sample_weight(X):
+    if sample_weight_col in X0.columns:
+        print('*')
+        return X.loc[:,[i for i in features if i != sample_weight_col]], X.loc[:,sample_weight_col]
+    else:
+        print('**')
+        return X, None
 
 
-# %%
 DEFAULT_RANDOM_STATE = 42
 from sklearn.model_selection import train_test_split
 X, X_val, y, y_val = train_test_split(X_all, y_all, test_size=0.4, stratify=y_all, random_state=DEFAULT_RANDOM_STATE)
+X, sampwt = separate_sample_weight(X)
+X_val, sampwt_val = separate_sample_weight(X_val)
 print(X.shape)
 print(y.shape)
+print(sampwt)
 print(X_val.shape)
 print(y_val.shape)
+print(sampwt_val)
 # exit()
 
 
@@ -327,7 +362,10 @@ print(f'There are {X.shape[1]} features in total. {sum(mask_iv)} features have I
 def remove_features(orig, remove):
     return sorted(set(orig)-set(remove))
 
-selected_features = remove_features(features, list(res_predictability.loc[res_predictability.IV <= 0.02, 'feature']))
+belowIVthreshold = list(res_predictability.loc[res_predictability.IV <= 0.02, 'feature'])
+print('Features with IV that less than 0.02 (and are thus dropped)', belowIVthreshold)
+
+selected_features = remove_features([i for i in features if i != sample_weight_col], belowIVthreshold)
 print(selected_features)
 
 # %%
@@ -381,55 +419,60 @@ print('selected:',selected_features)
 # perform only on numeric features
 print_ordinal_encodings(ordinal_encode_dict)
 
-
 result_cm = X.loc[:,selected_features].copy()
 
 # fine binning   -> 'initial_intervals'
 # coarse binning -> 'max_intervals'
-trans_cm = cm.ChiMerge(max_intervals=6, min_intervals=2,
-                        initial_intervals=100,
-                        decimal=3, output_dataframe=True)
+
+fine_bins = 100
+coarse_bins_max = 6
+coarse_bins_min = 2
+bin_decimal = 0
+
+trans_cm = cm.ChiMerge(max_intervals=coarse_bins_max, min_intervals=coarse_bins_min, initial_intervals=fine_bins,
+                        decimal=bin_decimal, output_dataframe=True)
 
 temp = list_intersect(selected_features,numeric_features)
-# print(result_cm.loc[:,temp])
-result_cm.loc[:,temp] = trans_cm.fit_transform(X.loc[:,temp], y).set_index(result_cm.index)
-print(result_cm.loc[:,temp])
-
-#
-for feat in temp:
-    result_cm.loc[result_cm.loc[:,feat].str.startswith('-inf~') & X.loc[:,feat]!=NO_INFO_INT,feat] = result_cm.loc[result_cm.loc[:,feat].str.startswith('-inf~') & X.loc[:,feat]!=NO_INFO_INT,feat].str.replace('-inf',str(float(NO_INFO_INT)))
-    result_cm.loc[X.loc[:,feat]==NO_INFO_INT,feat] = NO_INFO_INTERVAL
-    # assert list(X.loc[X.loc[:,feat]==NO_INFO_INT,feat].index) == list(result_cm.loc[result_cm.loc[:,feat].str.startswith('-inf~'+str(NO_INFO_INT)),feat].index)
-    # assert list(X.loc[X.loc[:,feat]==NO_INFO_INT,feat].index) == list(result_cm.loc[X.loc[:,feat]==NO_INFO_INT,feat].index)
-    # if list(X.loc[X.loc[:,feat]==NO_INFO_INT,feat].index) != list(result_cm.loc[result_cm.loc[:,feat].str.startswith('-inf~'+str(NO_INFO_INT)),feat].index):
-    #     print('---',feat)
-    #     print(X.loc[X.loc[:,feat]==NO_INFO_INT,feat])
-    #     print(result_cm.loc[X.loc[:,feat]==NO_INFO_INT,feat])
-
-# exit()
-
-temp = list_intersect(selected_features,ordinal_features)
-# print(result_cm.loc[:,temp])
+trans_cm.fit(X.loc[:,temp], y)
 
 for col in temp:
-    print(col)
-    bins0 = [i for i in list(ordinal_encode_dict[col]) if isinstance(i, int) or isinstance(i, float)]
-    result_cm.loc[:,col] = cm.assign_interval_str(X.loc[:,col].values,bins0) # pass new interval boundaries
+    if NO_INFO_NUM in X_all.loc[:,col].values and NO_INFO_NUM not in trans_cm.boundaries_[col]:
+        trans_cm.boundaries_[col] = np.array([NO_INFO_NUM] + list(trans_cm.boundaries_[col]))
 
-
-
-print(X.loc[:,selected_features])
-print(result_cm)
-
-# print(X.loc[:,selected_features].dtypes)
-# print(result_cm.dtypes)
-# exit()
+# print(result_cm.loc[:,temp])
+result_cm.loc[:,temp] = trans_cm.transform(X.loc[:,temp]).set_index(result_cm.index)
+# print(result_cm.loc[:,temp])
 
 
 # %%
-trans_cm.boundaries_ # show boundaries for all features (numeric_features)
+def bin_dict(bins0):
+    ret = dict()
+    binmax = np.max(bins0)
+    for b in bins0:
+        s = cm.assign_interval_str(np.array([b]),bins0)[0] if b == binmax else [i for i in cm.assign_interval_str(np.array([b,np.inf]),bins0) if '~inf' not in i][0]
+        ret[b], ret[s] = s, b
+    return ret
 
-# print(trans_cm.boundaries_)
+interval_encode_dict = dict()
+for col in selected_features:
+    if col in numeric_features:
+        bins0 = sorted([i for i in list(trans_cm.boundaries_[col]) if i != np.inf])
+        if NO_INFO_NUM in X_all.loc[:,col]:
+            bins0 = [NO_INFO_NUM] + bins0
+    elif col in ordinal_features:
+        bins0 = sorted([i for i in list(ordinal_encode_dict[col]) if isinstance(i, int) or isinstance(i, float)]) # already includes NO_INFO_NUM
+    # print(col, bins0)
+    print(col, cm.assign_interval_str(np.array(bins0),bins0))
+    result_cm.loc[:,col] = cm.assign_interval_str(X.loc[:,col].values,bins0) # pass new interval boundaries
+    interval_encode_dict[col] = bin_dict(bins0)
+
+
+# print(interval_encode_dict)
+# interval_encode_dict
+
+
+# %%
+# trans_cm.boundaries_ # show boundaries (for numeric_features)
 # exit()
 
 # %%
@@ -501,47 +544,50 @@ Analyze the sample distribution and event rate distribution for each feature, an
 """
 
 # %%
-coarse_bins = dict()                                        # coarse binning automatically performed by ChiMerge
-# coarse_bins['AveRooms'] = [5.96,6.426,6.95,7.41]          # example of manual coarse binning
-# coarse_bins['HouseAge'] = [24,36,45]
-# coarse_bins['Latitude'] = [34.1,34.47,37.59]
-# coarse_bins['Longitude'] = [-121.59,-118.37]
-# coarse_bins['Population'] = [420,694,877,1274,2812]
+manual_coarse_bins = dict()                                        # coarse binning automatically performed by ChiMerge
+# manual_coarse_bins['AveRooms'] = [5.96,6.426,6.95,7.41]          # example of manual coarse binning
+# manual_coarse_bins['HouseAge'] = [24,36,45]
+# manual_coarse_bins['Latitude'] = [34.1,34.47,37.59]
+# manual_coarse_bins['Longitude'] = [-121.59,-118.37]
+# manual_coarse_bins['Population'] = [420,694,877,1274,2812]
 
 
 # %%
 for col in selected_features:
     print(col)
     if col in numeric_features:
-        bins0 = [i for i in list(trans_cm.boundaries_[col]) if i != np.inf]
+        bins0 = sorted([i for i in list(trans_cm.boundaries_[col]) if i != np.inf])
+        if NO_INFO_NUM in X_all.loc[:,col]:
+            bins0 = [NO_INFO_NUM] + bins0
     elif col in ordinal_features:
-        bins0 = [i for i in list(ordinal_encode_dict[col]) if isinstance(i, int) or isinstance(i, float)]
-    if col in coarse_bins:
-        bins0 = coarse_bins[col]
+        bins0 = sorted([i for i in list(ordinal_encode_dict[col]) if isinstance(i, int) or isinstance(i, float)])
+    if col in manual_coarse_bins:
+        bins0 = sorted(manual_coarse_bins[col])
     print(bins0)
     # continue
-    fia.plot_event_dist(result_cm[col],y
-                    ,title=f'Feature distribution of {col}'
-                    ,x_label=col
-                    ,y_label=''
-                    ,x_rotation=90
-                    ,save=False
-                    ,file_name=col)
-    ## %%
-    if col in coarse_bins:
-        new_x = cm.assign_interval_str(X[col].values,bins0) # pass new interval boundaries             (coarse binning)
-        woe.woe_vector(new_x, y.values)
-        ## %%
-        fia.plot_event_dist(new_x,y
+    if col not in manual_coarse_bins:
+        continue
+        fia.plot_event_dist(result_cm[col],y
                         ,title=f'Feature distribution of {col}'
                         ,x_label=col
-                        ,y_label='More valuable than Q90'
+                        ,y_label=''
+                        ,x_rotation=90
+                        ,save=False
+                        ,file_name=col)
+    else:
+        new_x = cm.assign_interval_str(X[col].values,bins0) # pass new interval boundaries             (coarse binning)
+        woe.woe_vector(new_x, y.values)
+        result_cm[col] = new_x # reasonable explainability and predictability. Select.
+        continue
+        fia.plot_event_dist(result_cm[col],y
+                        ,title=f'Feature distribution of {col}'
+                        ,x_label=col
+                        ,y_label=''
                         ,x_rotation=90
                         ,save=False
                         ,file_name=col
                         ,table_vpos=-0.6)
-        ## %%
-        result_cm[col] = new_x # reasonable explainability and predictability. Select.
+        
 
 # exit()
 # %%
@@ -635,23 +681,29 @@ pos_weight = weights[1]/weights[0]
 DEFAULT_N_JOBS = 5
 # Search for the optimal parameters set for Logistic Regression
 param_grid = {                                                         ##################
- 'C': np.arange(1,10)/10, 
-#  'penalty':['l2','l1'],   
-# 'penalty':['l2','none'],   
-'penalty':['l2'],   
-'class_weight':[weights,None]
+# 'C': np.arange(1e-1,1,1e-1)/10,
+'C': np.arange(1e-2,1,1e-2)/10,
+# 'penalty':['l2','l1'],   
+# 'penalty':['l2','none'],  # when solver = newton-cg, lbfgs (default), sag, saga
+# 'penalty':['l1','l2','none'],   
+'penalty':['l2'],  
+  
+# 'solver':['lbfgs'],
+
+# 'class_weight':[weights,None] # same as None if 50:50 split between y = 0/1.
+'class_weight':[weights]
 }
 
+print(param_grid)
 # https://scikit-learn.org/stable/modules/generated/sklearn.metrics.roc_auc_score.html
 
-cl = LogisticRegression(max_iter=1000)
-grid_search = GridSearchCV(cl, param_grid, cv=KFold(n_splits=5, shuffle=True, random_state=DEFAULT_RANDOM_STATE*5), scoring='roc_auc',verbose=True,n_jobs=DEFAULT_N_JOBS) # n_jobs=-1                                   ##################
-grid_search.fit(result_woe, y)
+cl = LogisticRegression(max_iter=1000, random_state=DEFAULT_RANDOM_STATE*3)
+grid_search = GridSearchCV(cl, param_grid, cv=KFold(n_splits=10, shuffle=True, random_state=DEFAULT_RANDOM_STATE*5), scoring='roc_auc',verbose=True,n_jobs=DEFAULT_N_JOBS) # n_jobs=-1                                   ##################
+grid_search.fit(result_woe, y, sample_weight=sampwt)
 
 print('Best parameters:',grid_search.best_params_,
       '\n \n Best score',grid_search.best_score_,
       '\n \n Best model:',grid_search.best_estimator_)
-
 # %%
 # https://scorecard-bundle.bubu.blue/API/4.model.html   # LogisticRegressionScoreCard function documentation
 
@@ -660,8 +712,9 @@ print('Best parameters:',grid_search.best_params_,
 # model = lrsc.LogisticRegressionScoreCard(trans_woe, PDO=-20, basePoints=100, verbose=True, random_state=DEFAULT_RANDOM_STATE,
 #                                         C=0.6, class_weight={0: 0.5555356181589808, 1: 5.0016155088852985},penalty='l2')                                   ##################
 model = lrsc.LogisticRegressionScoreCard(trans_woe, PDO=-20, basePoints=100, verbose=True, random_state=DEFAULT_RANDOM_STATE*3, n_jobs=DEFAULT_N_JOBS,
-                                        **grid_search.best_params_)     
-model.fit(result_woe, y)
+                                        output_path=os.path.join(pPath, 'scorecards/'),
+                                        **grid_search.best_params_)
+model.fit(result_woe, y, sample_weight=sampwt)
 
 
 ## %%
@@ -701,26 +754,18 @@ sc_table = model.woe_df_.copy()
 # %%
 result = model.predict(X[selected_features], load_scorecard=sc_table) # Scorecard should be applied on the original feature values
 result_val = model.predict(X_val[selected_features], load_scorecard=sc_table) # Scorecard should be applied on the original feature values
-result.head() # if model object's verbose parameter is set to False, predict will only return Total scores
-
-# ##########################################################################################
-print_ordinal_encodings(ordinal_encode_dict)
-# toggle_missing_encoder(X_all, numeric_features, numeric_missing_dict)
-# toggle_ordinal_encoder(X_all, ordinal_encode_dict, ordinal_features)
-
+# result.head() # if model object's verbose parameter is set to False, predict will only return Total scores
+result
 
 
 # %%
-# OR if we load rules from local position.
+# OR if we load rules from file:
 
 # sc_table = pd.read_excel('rules.xlsx')
 
 # model = lrsc.LogisticRegressionScoreCard(woe_transformer=None, verbose=True)
 # result = model.predict(X[selected_features], load_scorecard=sc_table) # Scorecard should be applied on the original feature values
 # result_val = model.predict(X_val[selected_features], load_scorecard=sc_table) # Scorecard should be applied on the original feature values
-
-
-
 
 
 # %%
@@ -836,6 +881,39 @@ me.pref_table(y_val,result_val['TotalScore'].values,thresholds=result['TotalScor
 """
 ### Process, Export Scorecard table
 """
-# %%
-sc_table = sc_table.replace(NO_INFO_INTERVAL, NO_INFO_STR)
+
+
+lohi = sc_table.loc[:,'value'].str.split('~', n = 1, expand = True)
+sc_table['lo'] = [float(i) for i in lohi[0]]
+sc_table['hi'] = [float(i) for i in lohi[1]]
+
+for i in selected_features:
+    temp = sc_table.loc[sc_table.feature == i,:].copy()
+    tempindex = temp.index
+    if i in ordinal_features:
+        temp = temp.sort_values(by ='score', ascending=False)
+    elif i in numeric_features:
+        temp = temp.sort_values(by ='lo', ascending=False)
+    temp.index = tempindex
+    sc_table.loc[sc_table.feature == i,:] = temp
+    
+    if i in ordinal_features:
+        sc_table.loc[sc_table.feature == i, 'value'] = sc_table.loc[sc_table.feature == i, 'value'].replace(interval_encode_dict[i]).replace(ordinal_encode_dict[i])
+
+        
+sc_table.loc[:,'value'] = sc_table.loc[:,'value'].replace({NO_INFO_INTERVAL: NO_INFO_STR, NO_INFO_NUM: NO_INFO_STR})
+sc_table.loc[:,'value'] = sc_table.loc[:,'value'].str.replace(str(float(NO_INFO_NUM)), str(np.NINF))
+
+sc_table.loc[:,'value'] = sc_table.loc[:,'value'].str.replace('~'+str(np.inf), ' or more') # More than ...
+sc_table.loc[:,'value'] = sc_table.loc[:,'value'].str.replace(str(np.NINF)+'~', 'Below ') # ... or less
+
+
+
+
+
+
+sc_table.loc[:,'value'] = sc_table.loc[:,'value'].str.replace('~', ' <= ')
+
+# del sc_table[['lo','hi']]
+sc_table.to_excel(os.path.join(pPath, 'scorecards','scorecard_AutoLoans_bins-'+str(fine_bins)+'-'+str(coarse_bins_max)+'_decimal'+str(bin_decimal)+'.xlsx'), index=False)
 sc_table
