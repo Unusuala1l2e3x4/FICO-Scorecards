@@ -21,6 +21,8 @@ Build a Scorecard model to rate house values using the California Housing Datase
 
 
 # %%
+from sys import meta_path
+from scipy.stats import stats
 from scorecardbundle.feature_discretization import ChiMerge as cm
 from scorecardbundle.feature_discretization import FeatureIntervalAdjustment as fia
 from scorecardbundle.feature_encoding import WOE as woe
@@ -53,8 +55,7 @@ from sklearn.preprocessing import OrdinalEncoder
 from sklearn.utils import class_weight
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GridSearchCV, KFold
-
-
+from sklearn.metrics import roc_auc_score, average_precision_score, classification_report, confusion_matrix
 
 # %%
 import pickle
@@ -133,13 +134,6 @@ pPath = 'c:/Users/Alex/Documents/GitHub/FICO-Internship/hw2/'
 dataset = pd.read_csv(os.path.join(pPath, 'AutoLoans.csv'), thousands=',')
 
 
-# with open('dataset_california_housing.pkl','wb') as f:
-#     pickle.dump(dataset,f,4)
-
-# %%
-# with open('dataset_california_housing.pkl','rb') as f:
-#     dataset = pickle.load(f)
-
 # %%
 print(dataset.keys())
 print(dataset)
@@ -177,22 +171,16 @@ features = X0.columns
 X_all, y_all = X0[features], dataset['target']
 
 # %%
-# with open('data_ch.pkl','wb') as f:
-#     pickle.dump([X_all,y_all],f,4)
-# with open('data_ch.pkl','rb') as f:
-#     X_all,y_all = pickle.load(f)
-# features = sorted(X_all.columns)
-
-# %%
 print(X_all.shape)
 print(y_all.shape)
 y_all.value_counts(normalize=True)
 
 
+delim = '~'
 
 NO_INFO_STR = 'No Info'
 NO_INFO_NUM = -1e-3
-NO_INFO_INTERVAL = str(np.NINF)+'~'+str(float(NO_INFO_NUM))
+NO_INFO_INTERVAL = str(np.NINF)+delim+str(float(NO_INFO_NUM))
 
 # %%
 """
@@ -282,17 +270,12 @@ toggle_ordinal_encoder(X_all, ordinal_encode_dict, ordinal_features)
 
 
 
-
-
-
 # %%
 
 def separate_sample_weight(X):
     if sample_weight_col in X0.columns:
-        print('*')
         return X.loc[:,[i for i in features if i != sample_weight_col]], X.loc[:,sample_weight_col]
     else:
-        print('**')
         return X, None
 
 
@@ -355,17 +338,19 @@ res_predictability = res_iv.merge(res_chi2,on='feature')
 res_predictability.sort_values('Chi2_stat',ascending=False)
 
 # %%
-mask_iv = res_predictability.IV>0.02
-mask_chi2 = res_predictability.Chi2_pvalue<=0.05
+threshold_iv = 0.02
+threshold_chi2 = 0.05
+mask_iv = res_predictability.IV > threshold_iv
+mask_chi2 = res_predictability.Chi2_pvalue <= threshold_chi2
 print(f'There are {X.shape[1]} features in total. {sum(mask_iv)} features have IV that is larger than 0.02, while only {sum(mask_chi2)} features passed the Chi2 test')
 
 def remove_features(orig, remove):
     return sorted(set(orig)-set(remove))
 
-belowIVthreshold = list(res_predictability.loc[res_predictability.IV <= 0.02, 'feature'])
-print('Features with IV that less than 0.02 (and are thus dropped)', belowIVthreshold)
+belowthreshold_iv = list(res_predictability.loc[res_predictability.IV <= threshold_iv, 'feature'])
+print('Features with IV that less than 0.02 (and are thus dropped)', belowthreshold_iv)
 
-selected_features = remove_features([i for i in features if i != sample_weight_col], belowIVthreshold)
+selected_features = remove_features([i for i in features if i != sample_weight_col], belowthreshold_iv)
 print(selected_features)
 
 # %%
@@ -417,17 +402,20 @@ print('selected:',selected_features)
 # trans_cm = cm.ChiMerge(max_intervals=10, min_intervals=2, decimal=3, output_dataframe=True) # Given the meanings of these features, round them up to 3 decimals                                    ##################
 
 # perform only on numeric features
-print_ordinal_encodings(ordinal_encode_dict)
+# print_ordinal_encodings(ordinal_encode_dict)
 
 result_cm = X.loc[:,selected_features].copy()
 
 # fine binning   -> 'initial_intervals'
 # coarse binning -> 'max_intervals'
-
 fine_bins = 100
 coarse_bins_max = 6
 coarse_bins_min = 2
-bin_decimal = 0
+bin_decimal = 1 # 1 is highest precision present in dataset (dealLoanToVal); any higher has no effect
+
+# asdf
+
+chimerge_desc = '_bins-'+str(fine_bins)+'-'+str(coarse_bins_max)+'-'+str(coarse_bins_min)+'_decimal'+str(bin_decimal)
 
 trans_cm = cm.ChiMerge(max_intervals=coarse_bins_max, min_intervals=coarse_bins_min, initial_intervals=fine_bins,
                         decimal=bin_decimal, output_dataframe=True)
@@ -511,14 +499,29 @@ res_predictability_af = res_iv_af.merge(res_chi2_af,on='feature')
 res_predictability_af.sort_values('Chi2_stat',ascending=False)
 
 # %%
-mask_iv = res_predictability_af.IV>0.02
-mask_chi2 = res_predictability_af.Chi2_pvalue<=0.05
+mask_iv = res_predictability_af.IV > threshold_iv
+mask_chi2 = res_predictability_af.Chi2_pvalue <= threshold_chi2
 print(f'There are {len(selected_features)} features in total. {sum(mask_iv)} features have IV that is larger than 0.02, while {sum(mask_chi2)} features passed the Chi2 test')
 
 # %%
 """
-Thus no feature is dropped
+Drop features
 """
+features_to_drop_iv = list(res_predictability_af.loc[res_predictability_af.IV <= threshold_iv,'feature'])
+print('Dropping features with IVs below threshold: ',features_to_drop_iv)
+selected_features = remove_features(selected_features, features_to_drop_iv)
+
+result_cm = result_cm[selected_features]
+result_woe_tem = result_woe_tem[selected_features]
+
+[interval_encode_dict.pop(key) for key in features_to_drop_iv]
+[trans_woe_tem.iv_.pop(key) for key in features_to_drop_iv]
+[trans_woe_tem.result_dict_.pop(key) for key in features_to_drop_iv]
+[trans_cm.boundaries_.pop(key) for key in features_to_drop_iv if key in trans_cm.boundaries_]
+
+trans_woe_tem.columns_ = np.array(sorted(trans_woe_tem.iv_.keys()))
+trans_cm.columns_ = np.array(sorted(trans_cm.boundaries_.keys()))
+
 
 # %%
 """
@@ -649,16 +652,16 @@ There are no highly-correlated features
 """
 
 # %%
-cmap = sns.light_palette("steelblue", as_cmap=True)
+cmap = sns.light_palette("steelblue", as_cmap=True) # mono color
 result_woe.corr().style.background_gradient(cmap=cmap)
 
 # %%
 corr_matrix = result_woe.corr()
-plt.figure(figsize=(3,3))
-sns.heatmap(corr_matrix, cmap = 'bwr', center=0)
-plt.xticks(fontsize=12)
-plt.yticks(fontsize=12)
-plt.show()
+# plt.figure(figsize=(3,3))
+# sns.heatmap(corr_matrix, cmap = 'seismic', center=0, xticklabels=result_woe.columns, yticklabels=result_woe.columns, square=True, annot = True, fmt='.3f', annot_kws={"fontsize":5})
+# plt.xticks(fontsize=8)
+# plt.yticks(fontsize=8)
+# plt.show()
 
 # %%
 """
@@ -694,36 +697,41 @@ param_grid = {                                                         #########
 'class_weight':[weights]
 }
 
+max_iter = 1000
+
 print(param_grid)
 # https://scikit-learn.org/stable/modules/generated/sklearn.metrics.roc_auc_score.html
 
-cl = LogisticRegression(max_iter=1000, random_state=DEFAULT_RANDOM_STATE*3)
+cl = LogisticRegression(max_iter=max_iter, random_state=DEFAULT_RANDOM_STATE*3)
 grid_search = GridSearchCV(cl, param_grid, cv=KFold(n_splits=10, shuffle=True, random_state=DEFAULT_RANDOM_STATE*5), scoring='roc_auc',verbose=True,n_jobs=DEFAULT_N_JOBS) # n_jobs=-1                                   ##################
 grid_search.fit(result_woe, y, sample_weight=sampwt)
 
 print('Best parameters:',grid_search.best_params_,
       '\n \n Best score',grid_search.best_score_,
       '\n \n Best model:',grid_search.best_estimator_)
+
+# static params
+grid_search.best_params_['max_iter'] = max_iter
+# print(vars(grid_search.best_estimator_))
+
+
 # %%
 # https://scorecard-bundle.bubu.blue/API/4.model.html   # LogisticRegressionScoreCard function documentation
 
 
-
-# model = lrsc.LogisticRegressionScoreCard(trans_woe, PDO=-20, basePoints=100, verbose=True, random_state=DEFAULT_RANDOM_STATE,
-#                                         C=0.6, class_weight={0: 0.5555356181589808, 1: 5.0016155088852985},penalty='l2')                                   ##################
 model = lrsc.LogisticRegressionScoreCard(trans_woe, PDO=-20, basePoints=100, verbose=True, random_state=DEFAULT_RANDOM_STATE*3, n_jobs=DEFAULT_N_JOBS,
                                         output_path=os.path.join(pPath, 'scorecards/'),
                                         **grid_search.best_params_)
 model.fit(result_woe, y, sample_weight=sampwt)
+# print(vars(model.lr_))
 
 
-## %%
+## %% EXAMPLE
 # # Users can use `baseOdds` parameter to set base odds. 
 # # Default is None, where base odds will be calculate using the number of positive class divided by the number of negative class in y
 # # Assuming Users want base odds to be 1:60 (positive:negative)
-# model = lrsc.LogisticRegressionScoreCard(trans_woe, PDO=-20, basePoints=100, baseOdds=1/60,
-#                                          verbose=True,C=0.6, class_weight={0: 0.5555356181589808, 1: 5.0016155088852985},penalty='l2')
-# model.fit(result_woe, y)
+# model = lrsc.LogisticRegressionScoreCard(... , baseOdds=1/60)
+# model.fit(result_woe, y, sample_weight=sampwt)
 
 # %%
 """
@@ -731,8 +739,12 @@ Access the Scorecard rule table by attribute `woe_df_`. This is the Scorecard mo
 """
 
 # %%
-print_ordinal_encodings(ordinal_encode_dict)
+model.AB_
+
+# %%
+# print_ordinal_encodings(ordinal_encode_dict)
 model.woe_df_
+
 
 # %%
 """
@@ -756,13 +768,11 @@ result = model.predict(X[selected_features], load_scorecard=sc_table) # Scorecar
 result_val = model.predict(X_val[selected_features], load_scorecard=sc_table) # Scorecard should be applied on the original feature values
 # result.head() # if model object's verbose parameter is set to False, predict will only return Total scores
 result
-
+# exit()
 
 # %%
 # OR if we load rules from file:
-
 # sc_table = pd.read_excel('rules.xlsx')
-
 # model = lrsc.LogisticRegressionScoreCard(woe_transformer=None, verbose=True)
 # result = model.predict(X[selected_features], load_scorecard=sc_table) # Scorecard should be applied on the original feature values
 # result_val = model.predict(X_val[selected_features], load_scorecard=sc_table) # Scorecard should be applied on the original feature values
@@ -778,19 +788,10 @@ result_val['TotalScore'].hist(bins=10)
 """
 ### Model Evaluation
 """
-
 # %%
 """
 #### Train
 """
-
-# %%
-"""
-##### Classification performance on differet levels of model scores
-"""
-
-# %%
-me.pref_table(y,result['TotalScore'].values,thresholds=result['TotalScore'].quantile(np.arange(1,10)/10).values)
 
 # %%
 """
@@ -800,23 +801,16 @@ me.pref_table(y,result['TotalScore'].values,thresholds=result['TotalScore'].quan
 # %%
 evaluation = me.BinaryTargets(y, result['TotalScore'])
 print(evaluation.ks_stat())
-# evaluation.plot_ks()
-# evaluation.plot_roc()
-# evaluation.plot_precision_recall()
+# # evaluation.plot_ks()
+# # evaluation.plot_roc()
+# # evaluation.plot_precision_recall()
 evaluation.plot_all()
-
+# asdf
 # %%
 """
 #### Validation
 """
 
-# %%
-"""
-##### Classification performance on differet levels of model scores
-"""
-
-# %%
-me.pref_table(y_val,result_val['TotalScore'].values,thresholds=result['TotalScore'].quantile(np.arange(1,10)/10).values)
 
 # %%
 """
@@ -827,7 +821,7 @@ me.pref_table(y_val,result_val['TotalScore'].values,thresholds=result['TotalScor
 evaluation = me.BinaryTargets(y_val, result_val['TotalScore'])
 print(evaluation.ks_stat())
 evaluation.plot_all()
-
+# asdf
 # %%
 """
 ### Model interpretation
@@ -857,24 +851,112 @@ result_val['top'+str(n)+'_features'] = imp_fs
 # %%
 result_val
 
+
 # %%
+"""
+#### Classification performance on different levels of model scores
+"""
+# Evaluate the classification performance on differet levels of model scores (y_pred_proba). Useful for setting classification threshold based on requirements of precision and recall.
+
+# %%
+"""
+#### Training samples, training thresholds
+"""
+me.pref_table(y,result['TotalScore'].values,thresholds=result['TotalScore'].quantile(np.arange(1,10)/10).values)
+
+# %%
+"""
+#### Validation samples, training thresholds
+"""
 me.pref_table(y_val,result_val['TotalScore'].values,thresholds=result['TotalScore'].quantile(np.arange(1,10)/10).values)
 
-# # %%
-# """
-# Based on the classification performance table, choose 152 as the threshold (precision 20%, recall 79%)
-# """
 
+# %%
+"""
+EXAMPLE
+Based on the classification performance table, choose 152 as the threshold (precision 20%, recall 79%)
+"""
 # # %%
 # result_val['y_pred'] = result_val['TotalScore'].map(lambda x: 1 if x>152 else 0)                                   ##################
 # print(np.mean(result_val['y_pred']))
 # result_val
 
 
-# # %%
-# """
-# Now we can interprete model scores based on the analysis above. For example, the 4th entry has a total score of 174. 2. The primary driver of house value in this case is housing age ('HouseAge') and position('Longitude')
-# """
+# %%
+"""
+### Determine best TotalScore threshold(s) with classification reports
+"""
+
+# https://scikit-learn.org/stable/modules/generated/sklearn.metrics.classification_report.html
+
+def thresholds_stats(res, y_true, keyword, weights=None):
+    # print('Use sample weights:',not isinstance(weights, type(None)))
+    threshold_scores = {key:[] for key in ['threshold','accuracy']}
+
+    for i in range(int(np.min(res['TotalScore'])), int(np.max(res['TotalScore']))):
+        y_pred = res['TotalScore'].map(lambda x: 1 if x >= i else 0)
+        class_report = classification_report(y_true, y_pred, sample_weight=weights, output_dict=True, zero_division=0)
+        # break
+        threshold_scores['threshold'].append(i)
+
+        # for i in class_report:
+        for i in ['accuracy','1','macro avg','weighted avg']: # '0',     -- macro same as weighted if weights=None and 50:50 y=0/1 ratio (this is the case for AutoLoans)
+            if i == 'accuracy':
+                threshold_scores[i].append(class_report[i])
+                continue
+
+            # for j in class_report[i]:
+            for j in ['precision','recall','f1-score','support']:
+                k = i+': '+j
+                if k not in threshold_scores:
+                    threshold_scores[k] = []
+                threshold_scores[k].append(class_report[i][j])
+        
+        tn_fp_fn_tp = {key:val/sup for key, val, sup in zip(['tn', 'fp', 'fn', 'tp'], confusion_matrix(y_true, y_pred, sample_weight=weights).ravel(), [class_report['0']['support'], class_report['1']['support'], class_report['0']['support'], class_report['1']['support']])}
+        for i in ['fp', 'tp', 'tn', 'fn']:
+            if i not in threshold_scores:
+                threshold_scores[i] = []
+            threshold_scores[i].append(tn_fp_fn_tp[i])
+
+    threshold_scores = pd.DataFrame.from_dict(threshold_scores)
+
+    statsdict = dict()
+    statsdict[keyword+'-roc_auc'] = roc_auc_score(y_true, res['TotalScore'])
+    statsdict[keyword+'-average_precision'] = average_precision_score(y_true, res['TotalScore'])
+    statsdict[keyword+'-best_accuracy'] = max(threshold_scores['accuracy'])
+    statsdict[keyword+'-best_accuracy_threshold'] = min(threshold_scores.loc[threshold_scores['accuracy'] == statsdict[keyword+'-best_accuracy'],'threshold'].values)
+
+    # return threshold_scores.sort_values(by='accuracy', ascending=False)
+    return threshold_scores, statsdict
+
+# asdf
+
+# print('For training samples:')
+df, statsdict = thresholds_stats(result, y, 'train')
+df.to_excel(os.path.join(pPath, 'thresholds','train'+chimerge_desc+'.xlsx'), index=False)
+
+# print('For validation samples:')
+df, statsdict_val = thresholds_stats(result_val, y_val, 'val')
+df.to_excel(os.path.join(pPath, 'thresholds','val'+chimerge_desc+'.xlsx'), index=False)
+
+# exit()
+
+
+# %%
+"""
+### Record stats for given binning specs - roc auc, avg prec, etc.
+"""
+# chimerge_desc = '_bins-'+str(fine_bins)+'-'+str(coarse_bins_max)+'-'+str(coarse_bins_min)+'_decimal'+str(bin_decimal)
+fn = 'stats based on binning specs'
+chimerge_params = ['__m__', '__confidence_level__', '__max_intervals__', '__min_intervals__','__initial_intervals__', '__decimal__']
+
+columns = [i.split('__')[1] for i in chimerge_params] + list(statsdict.keys()) + list(statsdict_val.keys())
+data = np.array([[vars(trans_cm)[i] for i in chimerge_params] + [statsdict[i] for i in statsdict] + [statsdict_val[i] for i in statsdict_val]], dtype=object)
+temp = pd.DataFrame(data, columns=columns)
+
+statsdf = pd.read_excel(os.path.join(pPath, fn+'.xlsx')) if fn+'.xlsx' in os.listdir(pPath) else pd.DataFrame(columns=columns)
+statsdf = pd.concat([statsdf, temp]).drop_duplicates(ignore_index=True)
+statsdf.to_excel(os.path.join(pPath, fn+'.xlsx'), index=False)
 
 
 # %%
@@ -882,8 +964,7 @@ me.pref_table(y_val,result_val['TotalScore'].values,thresholds=result['TotalScor
 ### Process, Export Scorecard table
 """
 
-
-lohi = sc_table.loc[:,'value'].str.split('~', n = 1, expand = True)
+lohi = sc_table.loc[:,'value'].str.split(delim, n = 1, expand = True)
 sc_table['lo'] = [float(i) for i in lohi[0]]
 sc_table['hi'] = [float(i) for i in lohi[1]]
 
@@ -900,20 +981,30 @@ for i in selected_features:
     if i in ordinal_features:
         sc_table.loc[sc_table.feature == i, 'value'] = sc_table.loc[sc_table.feature == i, 'value'].replace(interval_encode_dict[i]).replace(ordinal_encode_dict[i])
 
-        
 sc_table.loc[:,'value'] = sc_table.loc[:,'value'].replace({NO_INFO_INTERVAL: NO_INFO_STR, NO_INFO_NUM: NO_INFO_STR})
 sc_table.loc[:,'value'] = sc_table.loc[:,'value'].str.replace(str(float(NO_INFO_NUM)), str(np.NINF))
 
-sc_table.loc[:,'value'] = sc_table.loc[:,'value'].str.replace('~'+str(np.inf), ' or more') # More than ...
-sc_table.loc[:,'value'] = sc_table.loc[:,'value'].str.replace(str(np.NINF)+'~', 'Below ') # ... or less
+for row in sc_table.itertuples():
+  # Pandas(Index=0, feature='appAge', value='66.0~inf', woe=-0.074107972149601, beta=0.6426741005533283, score=9.0, lo=66.0, hi=inf)
+  # print(row)
+  if row.feature in numeric_features:
+    if row.lo == np.NINF and NO_INFO_NUM not in interval_encode_dict[row.feature]: # row.value != NO_INFO_STR
+      sc_table.loc[sc_table.index == row.Index,'value'] = str(row.hi) + ' or less'
+    elif row.lo == NO_INFO_NUM and NO_INFO_NUM in interval_encode_dict[row.feature]:
+      if row.hi == 0:
+        sc_table.loc[sc_table.index == row.Index,'value'] = str(0.0)
+      else:
+        sc_table.loc[sc_table.index == row.Index,'value'] = str(row.hi) + ' or less'
+    elif row.hi == np.inf:
+      sc_table.loc[sc_table.index == row.Index,'value'] = 'More than ' + str(row.lo)
 
+for row in sc_table.itertuples():
+  if row.feature in numeric_features and row.lo == 0:
+    sc_table.loc[sc_table.index == row.Index,'value'] = str(0.0) + delim + str(row.hi)
 
+sc_table.loc[:,'value'] = sc_table.loc[:,'value'].str.replace(delim, ' <= ')
 
+del sc_table['lo'], sc_table['hi']
 
-
-
-sc_table.loc[:,'value'] = sc_table.loc[:,'value'].str.replace('~', ' <= ')
-
-# del sc_table[['lo','hi']]
-sc_table.to_excel(os.path.join(pPath, 'scorecards','scorecard_AutoLoans_bins-'+str(fine_bins)+'-'+str(coarse_bins_max)+'_decimal'+str(bin_decimal)+'.xlsx'), index=False)
+sc_table.to_excel(os.path.join(pPath, 'scorecards','scorecard_AutoLoans'+chimerge_desc+'.xlsx'), index=False)
 sc_table
