@@ -54,7 +54,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import OrdinalEncoder
 from sklearn.utils import class_weight
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import GridSearchCV, KFold
+from sklearn.model_selection import GridSearchCV, KFold, ParameterGrid
 from sklearn.metrics import roc_auc_score, average_precision_score, classification_report, confusion_matrix
 
 # %%
@@ -350,8 +350,8 @@ def remove_features(orig, remove):
 belowthreshold_iv = list(res_predictability.loc[res_predictability.IV <= threshold_iv, 'feature'])
 print('Features with IV that less than 0.02 (and are thus dropped)', belowthreshold_iv)
 
-selected_features = remove_features([i for i in features if i != sample_weight_col], belowthreshold_iv)
-print(selected_features)
+selected_features_0 = remove_features([i for i in features if i != sample_weight_col], belowthreshold_iv)
+print(selected_features_0)
 
 # %%
 """
@@ -385,48 +385,68 @@ Based on the analysis results above, 'MedInc', 'AveBedrms', and 'AveOccup' are d
 """
 
 # %%
-# selected_features = remove_features(selected_features, ['MedInc', 'AveBedrms', 'AveOccup'])
-selected_features = remove_features(selected_features, features_to_drop_auto)
-# selected_features = remove_features(selected_features, features_to_drop_manual[1:])
+# selected_features_0 = remove_features(selected_features_0, ['MedInc', 'AveBedrms', 'AveOccup'])
+selected_features_0 = remove_features(selected_features_0, features_to_drop_auto)
+# selected_features_0 = remove_features(selected_features_0, features_to_drop_manual[1:])
 print('auto dropping:',features_to_drop_auto)
 # print('manual dropping:',features_to_drop_manual[1:])
-print('selected:',selected_features)
-# print(X[selected_features])
+print('selected:',selected_features_0)
+# print(X[selected_features_0])
 
 # %%
 """
 ### Feature Discretization
 """
 
-# %%
+## %%
 # trans_cm = cm.ChiMerge(max_intervals=10, min_intervals=2, decimal=3, output_dataframe=True) # Given the meanings of these features, round them up to 3 decimals                                    ##################
 
 # perform only on numeric features
 # print_ordinal_encodings(ordinal_encode_dict)
 
-result_cm = X.loc[:,selected_features].copy()
+
 
 # fine binning   -> 'initial_intervals'
 # coarse binning -> 'max_intervals'
-fine_bins = 100
-coarse_bins_max = 6
-coarse_bins_min = 2
-bin_decimal = 1 # 1 is highest precision present in dataset (dealLoanToVal); any higher has no effect
+initial_intervals = 100
+max_intervals = 6
+min_intervals = 2
+decimal = 1 # 1 is highest precision present in dataset (dealLoanToVal); any higher has no effect
 
 # asdf
+# default:
+# param_grid = ParameterGrid({'m':[2], 'confidence_level':[0.9], 'max_intervals':[None], 'min_intervals':[1], 'initial_intervals':[100], 'decimal':[None]})
+# first:
+# param_grid = ParameterGrid({'m':[2], 'confidence_level':[0.9], 'max_intervals':[6], 'min_intervals':[2], 'initial_intervals':[100], 'decimal':[1]})
 
-chimerge_desc = '_bins-'+str(fine_bins)+'-'+str(coarse_bins_max)+'-'+str(coarse_bins_min)+'_decimal'+str(bin_decimal)
 
-trans_cm = cm.ChiMerge(max_intervals=coarse_bins_max, min_intervals=coarse_bins_min, initial_intervals=fine_bins,
-                        decimal=bin_decimal, output_dataframe=True)
+param_grid = ParameterGrid({'m':[2,3,4], 'confidence_level':[0.9], 'max_intervals':[4,6,8], 'min_intervals':[1,2], 'initial_intervals':[100], 'decimal':[1]})
 
-temp = list_intersect(selected_features,numeric_features)
+# print(list(param_grid))
+for i in param_grid:
+    # print(i)
+    trans_cm = cm.ChiMerge(**i, output_dataframe=True)
+    chimerge_desc = ''
+    for j in i:
+        chimerge_desc += '_'+j[:4].split('_')[0]+'-'+str(i[j])
+    
+    # print(vars(trans_cm))
+    print(chimerge_desc)
+
+
+chimerge_desc = '_bins-'+str(initial_intervals)+'-'+str(max_intervals)+'-'+str(min_intervals)+'_decimal'+str(decimal)
+
+trans_cm = cm.ChiMerge(max_intervals=max_intervals, min_intervals=min_intervals, initial_intervals=initial_intervals,
+                        decimal=decimal, output_dataframe=True)
+
+temp = list_intersect(selected_features_0,numeric_features)
 trans_cm.fit(X.loc[:,temp], y)
 
 for col in temp:
     if NO_INFO_NUM in X_all.loc[:,col].values and NO_INFO_NUM not in trans_cm.boundaries_[col]:
         trans_cm.boundaries_[col] = np.array([NO_INFO_NUM] + list(trans_cm.boundaries_[col]))
 
+result_cm = X.loc[:,selected_features_0].copy()
 # print(result_cm.loc[:,temp])
 result_cm.loc[:,temp] = trans_cm.transform(X.loc[:,temp]).set_index(result_cm.index)
 # print(result_cm.loc[:,temp])
@@ -442,7 +462,7 @@ def bin_dict(bins0):
     return ret
 
 interval_encode_dict = dict()
-for col in selected_features:
+for col in selected_features_0:
     if col in numeric_features:
         bins0 = sorted([i for i in list(trans_cm.boundaries_[col]) if i != np.inf])
         if NO_INFO_NUM in X_all.loc[:,col]:
@@ -465,7 +485,7 @@ for col in selected_features:
 
 # %%
 feature_doc = pd.DataFrame({
-    'feature':selected_features
+    'feature':selected_features_0
 })
 feature_doc['num_intervals'] = feature_doc['feature'].map(result_cm.nunique().to_dict())
 feature_doc['min_interval_size'] = [fia.feature_stat(result_cm[col].values,y.values)['sample_size'].min() for col in feature_doc['feature']]
@@ -493,7 +513,7 @@ res_iv_af = pd.DataFrame.from_dict(trans_woe_tem.iv_, orient='index').sort_value
 res_iv_af.columns = ['feature','IV']
 # Chi2 result
 res_chi2_af = pd.DataFrame(np.stack(res_chi2_tem,axis=1),columns=['Chi2_stat','Chi2_pvalue'])
-res_chi2_af['feature'] = selected_features
+res_chi2_af['feature'] = selected_features_0
 # Merge
 res_predictability_af = res_iv_af.merge(res_chi2_af,on='feature')
 res_predictability_af.sort_values('Chi2_stat',ascending=False)
@@ -501,7 +521,7 @@ res_predictability_af.sort_values('Chi2_stat',ascending=False)
 # %%
 mask_iv = res_predictability_af.IV > threshold_iv
 mask_chi2 = res_predictability_af.Chi2_pvalue <= threshold_chi2
-print(f'There are {len(selected_features)} features in total. {sum(mask_iv)} features have IV that is larger than 0.02, while {sum(mask_chi2)} features passed the Chi2 test')
+print(f'There are {len(selected_features_0)} features in total. {sum(mask_iv)} features have IV that is larger than 0.02, while {sum(mask_chi2)} features passed the Chi2 test')
 
 # %%
 """
@@ -509,7 +529,7 @@ Drop features
 """
 features_to_drop_iv = list(res_predictability_af.loc[res_predictability_af.IV <= threshold_iv,'feature'])
 print('Dropping features with IVs below threshold: ',features_to_drop_iv)
-selected_features = remove_features(selected_features, features_to_drop_iv)
+selected_features = remove_features(selected_features_0, features_to_drop_iv)
 
 result_cm = result_cm[selected_features]
 result_woe_tem = result_woe_tem[selected_features]
@@ -946,12 +966,11 @@ df.to_excel(os.path.join(pPath, 'thresholds','val'+chimerge_desc+'.xlsx'), index
 """
 ### Record stats for given binning specs - roc auc, avg prec, etc.
 """
-# chimerge_desc = '_bins-'+str(fine_bins)+'-'+str(coarse_bins_max)+'-'+str(coarse_bins_min)+'_decimal'+str(bin_decimal)
 fn = 'stats based on binning specs'
 chimerge_params = ['__m__', '__confidence_level__', '__max_intervals__', '__min_intervals__','__initial_intervals__', '__decimal__']
 
-columns = [i.split('__')[1] for i in chimerge_params] + list(statsdict.keys()) + list(statsdict_val.keys())
-data = np.array([[vars(trans_cm)[i] for i in chimerge_params] + [statsdict[i] for i in statsdict] + [statsdict_val[i] for i in statsdict_val]], dtype=object)
+columns = [i.split('__')[1] for i in chimerge_params] + list(statsdict.keys()) + list(statsdict_val.keys()) + ['C']
+data = np.array([[vars(trans_cm)[i] for i in chimerge_params] + [statsdict[i] for i in statsdict] + [statsdict_val[i] for i in statsdict_val] + [grid_search.best_params_['C']]], dtype=object)
 temp = pd.DataFrame(data, columns=columns)
 
 statsdf = pd.read_excel(os.path.join(pPath, fn+'.xlsx')) if fn+'.xlsx' in os.listdir(pPath) else pd.DataFrame(columns=columns)
@@ -987,20 +1006,20 @@ sc_table.loc[:,'value'] = sc_table.loc[:,'value'].str.replace(str(float(NO_INFO_
 for row in sc_table.itertuples():
   # Pandas(Index=0, feature='appAge', value='66.0~inf', woe=-0.074107972149601, beta=0.6426741005533283, score=9.0, lo=66.0, hi=inf)
   # print(row)
-  if row.feature in numeric_features:
-    if row.lo == np.NINF and NO_INFO_NUM not in interval_encode_dict[row.feature]: # row.value != NO_INFO_STR
-      sc_table.loc[sc_table.index == row.Index,'value'] = str(row.hi) + ' or less'
-    elif row.lo == NO_INFO_NUM and NO_INFO_NUM in interval_encode_dict[row.feature]:
-      if row.hi == 0:
-        sc_table.loc[sc_table.index == row.Index,'value'] = str(0.0)
-      else:
-        sc_table.loc[sc_table.index == row.Index,'value'] = str(row.hi) + ' or less'
-    elif row.hi == np.inf:
-      sc_table.loc[sc_table.index == row.Index,'value'] = 'More than ' + str(row.lo)
+    if row.feature in numeric_features:
+        if row.lo == np.NINF and NO_INFO_NUM not in interval_encode_dict[row.feature]: # row.value != NO_INFO_STR
+            sc_table.loc[sc_table.index == row.Index,'value'] = str(row.hi) + ' or less'
+        elif row.lo == NO_INFO_NUM and NO_INFO_NUM in interval_encode_dict[row.feature]:
+            if row.hi == 0:
+                sc_table.loc[sc_table.index == row.Index,'value'] = str(0.0)
+            else:
+                sc_table.loc[sc_table.index == row.Index,'value'] = str(row.hi) + ' or less'
+        elif row.hi == np.inf:
+            sc_table.loc[sc_table.index == row.Index,'value'] = 'More than ' + str(row.lo)
 
 for row in sc_table.itertuples():
-  if row.feature in numeric_features and row.lo == 0:
-    sc_table.loc[sc_table.index == row.Index,'value'] = str(0.0) + delim + str(row.hi)
+    if row.feature in numeric_features and row.lo == 0:
+        sc_table.loc[sc_table.index == row.Index,'value'] = str(0.0) + delim + str(row.hi)
 
 sc_table.loc[:,'value'] = sc_table.loc[:,'value'].str.replace(delim, ' <= ')
 
