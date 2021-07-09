@@ -66,6 +66,8 @@ import matplotlib as mpl
 import seaborn as sns
 from datetime import datetime
 import copy, os, pathlib, re
+import importlib
+fc = importlib.import_module('functions')
 
 plt.style.use('seaborn-colorblind')
 plt.rcParams['font.sans-serif'] = ['SimHei']  # Enable display of Chinese characters
@@ -281,7 +283,8 @@ def separate_sample_weight(X):
 
 DEFAULT_RANDOM_STATE = 42
 from sklearn.model_selection import train_test_split
-X, X_val, y, y_val = train_test_split(X_all, y_all, test_size=0.4, stratify=y_all, random_state=DEFAULT_RANDOM_STATE)
+# X, X_val, y, y_val = train_test_split(X_all, y_all, test_size=0.4, stratify=y_all, random_state=DEFAULT_RANDOM_STATE)
+X, X_val, y, y_val = train_test_split(X_all, y_all, test_size=0.3, stratify=y_all, random_state=DEFAULT_RANDOM_STATE)
 X, sampwt = separate_sample_weight(X)
 X_val, sampwt_val = separate_sample_weight(X_val)
 # print(X.shape)
@@ -292,6 +295,18 @@ X_val, sampwt_val = separate_sample_weight(X_val)
 # print(sampwt_val)
 # exit()
 
+
+# %%
+# Weight the positive class so that the model cares more about the classification performace of the positive class.
+def compute_class_weight(labels):
+    '''Compute weight for each class and return a dictionary. 
+    This is for the class_weight parameter in classifiers'''
+    class_weights = class_weight.compute_class_weight('balanced', np.unique(labels), labels)
+    return dict(zip(np.unique(labels), class_weights))
+
+weights = compute_class_weight(y.values)
+pos_weight = weights[1]/weights[0]
+# weights,pos_weight
 
 # %%
 y.value_counts(normalize=True)
@@ -393,18 +408,68 @@ selected_features_0 = remove_features(selected_features_0, features_to_drop_auto
 # print('selected:',selected_features_0)
 # # print(X[selected_features_0])
 
+
+# %%
+"""
+### Logistic Regression Parameters
+"""
+statsdf_drop_dup = False
+save_threshold_testing = False
+save_scorecard = False
+
+DEFAULT_N_JOBS = 5
+# Search for the optimal parameters set for Logistic Regression
+
+ptemp = {
+# 'C': np.arange(1e-2,1,1e-2)/10,
+'C': [np.round(i, 6) for i in list(np.arange(1e-3,4e-2,1e-3)) + list(np.arange(4e-2,1e-1,1e-2)) + list(np.arange(1e-1,1,1e-1))],
+
+
+# 'penalty':['l2','l1'],   
+# 'penalty':['l2','none'],  # when solver = newton-cg, lbfgs (default), sag, saga
+# 'penalty':['l1','l2','none'],   
+# 'penalty':['l2'],  # default
+
+# 'solver':['lbfgs'],  # default
+
+# 'tol':[1e-4],  # default
+# 'tol':list(np.arange(1e-4,6e-4,1e-4)),
+'tol':[1e-8,2e-8,4e-8,8e-8,16e-8,32e-8,64e-8,128e-8,256e-8,512e-8,1024e-8],
+
+# 'max_iter':[1000],
+'max_iter':[10000],
+
+# 'class_weight':[weights,None] # same as None if 50:50 split between y = 0/1.
+'class_weight':[weights]
+}
+param_grid_lr = []
+param_grid_lr.append(ptemp)
+param_grid_lr.append({
+'C':[0],
+'penalty':['none'],
+'tol':ptemp['tol'],
+'max_iter':ptemp['max_iter'],
+'class_weight':ptemp['class_weight']
+})
+
+# asdf
+
+print(param_grid_lr)
+print('# LR param combinations',len(ParameterGrid(param_grid_lr)))
+
+# max_iter = 1000
+
+
+
 # %%
 """
 ### Feature Discretization
 """
-
 ## %%
 # trans_cm = cm.ChiMerge(max_intervals=10, min_intervals=2, decimal=3, output_dataframe=True) # Given the meanings of these features, round them up to 3 decimals                                    ##################
 
 # perform only on numeric features
 # print_ordinal_encodings(ordinal_encode_dict)
-
-
 
 # fine binning   -> 'initial_intervals'
 # coarse binning -> 'max_intervals'
@@ -413,19 +478,33 @@ max_intervals = 6
 min_intervals = 2
 decimal = 1 # 1 is highest precision present in dataset (dealLoanToVal); any higher has no effect
 
+param_grid = []
 # asdf
 # default:
-# param_grid = ParameterGrid({'m':[2], 'confidence_level':[0.9], 'max_intervals':[None], 'min_intervals':[1], 'initial_intervals':[100], 'decimal':[None]})
+# param_grid = {'m':[2], 'confidence_level':[0.9], 'max_intervals':[None], 'min_intervals':[1], 'initial_intervals':[100], 'decimal':[None]})
 # first:
-# param_grid = ParameterGrid({'m':[2], 'confidence_level':[0.9], 'max_intervals':[6], 'min_intervals':[2], 'initial_intervals':[100], 'decimal':[1]})
+# param_grid.append({'m':[2], 'confidence_level':[0.9], 'max_intervals':[6], 'min_intervals':[2], 'initial_intervals':[100], 'decimal':[1]})
 
 
-# param_grid = ParameterGrid({'m':[2,3,4,5,6], 'confidence_level':[0.9], 'max_intervals':[4,6,8,10], 'min_intervals':[1], 'initial_intervals':[100], 'decimal':[1]})
-# param_grid = ParameterGrid({'m':[2,3,4], 'confidence_level':[0.75,0.80,0.85,0.9,0.95], 'max_intervals':[5,6,7,8], 'min_intervals':[1], 'initial_intervals':[100], 'decimal':[1]})
-param_grid = ParameterGrid({'m':[2,3,4], 'confidence_level':[0.85,0.9,0.95], 'max_intervals':[5,6,7,8], 'min_intervals':[1], 'initial_intervals':[140], 'decimal':[1]})
 
-print(len(param_grid))
+# param_grid.append({'m':[2,3,4,5,6], 'confidence_level':[0.9], 'max_intervals':[4,6,8,10], 'min_intervals':[1], 'initial_intervals':[100], 'decimal':[1]})
+param_grid.append({'m':[2,3,4,5], 'confidence_level':[0.75,0.80,0.85,0.9,0.95], 'max_intervals':[4,5,6,7,8], 'min_intervals':[1], 'initial_intervals':[100], 'decimal':[1]})
+# param_grid.append({'m':[2,3,4], 'confidence_level':[0.85,0.9,0.95], 'max_intervals':[5,6,7,8], 'min_intervals':[1], 'initial_intervals':[120], 'decimal':[1]})
 
+# param_grid.append({'m':[4], 'confidence_level':[0.85], 'max_intervals':[7], 'min_intervals':[1], 'initial_intervals':[120], 'decimal':[1]})
+
+
+param_grid = ParameterGrid(param_grid)
+
+print('# ChiMerge param combinations',len(param_grid))
+
+
+t0 = fc.timer_start()
+t1 = t0
+
+
+
+# exit()
 # # print(list(param_grid))
 for i in param_grid:
     if i['max_intervals'] < i['min_intervals']:
@@ -436,9 +515,7 @@ for i in param_grid:
     for j in i:
         chimerge_desc += '_'+j[:4].split('_')[0]+'-'+str(i[j])
     
-
     # chimerge_desc = '_bins-'+str(initial_intervals)+'-'+str(max_intervals)+'-'+str(min_intervals)+'_decimal'+str(decimal)
-
     # trans_cm = cm.ChiMerge(max_intervals=max_intervals, min_intervals=min_intervals, initial_intervals=initial_intervals,
     #                         decimal=decimal, output_dataframe=True)
 
@@ -697,50 +774,23 @@ for i in param_grid:
     ### Model Training
     """
 
-    # %%
-    # Weight the positive class so that the model cares more about the classification performace of the positive class.
-    def compute_class_weight(labels):
-        '''Compute weight for each class and return a dictionary. 
-        This is for the class_weight parameter in classifiers'''
-        class_weights = class_weight.compute_class_weight('balanced', np.unique(labels), labels)
-        return dict(zip(np.unique(labels), class_weights))
 
-    weights = compute_class_weight(y.values)
-    pos_weight = weights[1]/weights[0]
-    # weights,pos_weight
 
     # %%
-    DEFAULT_N_JOBS = 5
-    # Search for the optimal parameters set for Logistic Regression
-    param_grid = {                                                         ##################
-    # 'C': np.arange(1e-1,1,1e-1)/10,
-    'C': np.arange(1e-2,1,1e-2)/10,
-    # 'penalty':['l2','l1'],   
-    # 'penalty':['l2','none'],  # when solver = newton-cg, lbfgs (default), sag, saga
-    # 'penalty':['l1','l2','none'],   
-    'penalty':['l2'],  
-    
-    # 'solver':['lbfgs'],
 
-    # 'class_weight':[weights,None] # same as None if 50:50 split between y = 0/1.
-    'class_weight':[weights]
-    }
 
-    max_iter = 1000
-
-    # print(param_grid)
-    # https://scikit-learn.org/stable/modules/generated/sklearn.metrics.roc_auc_score.html
-
-    cl = LogisticRegression(max_iter=max_iter, random_state=DEFAULT_RANDOM_STATE*3)
-    grid_search = GridSearchCV(cl, param_grid, cv=KFold(n_splits=10, shuffle=True, random_state=DEFAULT_RANDOM_STATE*5), scoring='roc_auc',verbose=False,n_jobs=DEFAULT_N_JOBS) # n_jobs=-1                                   ##################
+    cl = LogisticRegression(random_state=DEFAULT_RANDOM_STATE*3) # max_iter=max_iter, 
+    grid_search = GridSearchCV(cl, param_grid_lr, cv=KFold(n_splits=10, shuffle=True, random_state=DEFAULT_RANDOM_STATE*5), scoring='roc_auc',verbose=False,n_jobs=DEFAULT_N_JOBS) # n_jobs=-1                                   ##################
     grid_search.fit(result_woe, y, sample_weight=sampwt)
+
+    print(grid_search.refit_time_) # asdf
 
     # print('Best parameters:',grid_search.best_params_,
     #     '\n \n Best score',grid_search.best_score_,
     #     '\n \n Best model:',grid_search.best_estimator_)
 
     # static params
-    grid_search.best_params_['max_iter'] = max_iter
+    # grid_search.best_params_['max_iter'] = max_iter
     # # print(vars(grid_search.best_estimator_))
 
 
@@ -752,7 +802,9 @@ for i in param_grid:
                                             output_path=os.path.join(pPath, 'scorecards/'),
                                             **grid_search.best_params_)
     model.fit(result_woe, y, sample_weight=sampwt)
-    # # print(vars(model.lr_))
+    # print(vars(model.lr_))
+    print(model.lr_.n_iter_[0]) # asdf
+    
 
 
     ## %% EXAMPLE
@@ -962,11 +1014,13 @@ for i in param_grid:
 
     # # print('For training samples:')
     df, statsdict = thresholds_stats(result, y, 'train')
-    df.to_excel(os.path.join(pPath, 'thresholds','train'+chimerge_desc+'.xlsx'), index=False)
+    if save_threshold_testing:
+        df.to_excel(os.path.join(pPath, 'thresholds','train'+chimerge_desc+'.xlsx'), index=False)
 
     # # print('For validation samples:')
     df, statsdict_val = thresholds_stats(result_val, y_val, 'val')
-    df.to_excel(os.path.join(pPath, 'thresholds','val'+chimerge_desc+'.xlsx'), index=False)
+    if save_threshold_testing:
+        df.to_excel(os.path.join(pPath, 'thresholds','val'+chimerge_desc+'.xlsx'), index=False)
 
     # exit()
 
@@ -978,11 +1032,11 @@ for i in param_grid:
     fn = 'stats based on binning specs'
     chimerge_params = ['__m__', '__confidence_level__', '__max_intervals__', '__min_intervals__','__initial_intervals__', '__decimal__']
 
-    columns = [i.split('__')[1] for i in chimerge_params] + list(statsdict.keys()) + list(statsdict_val.keys())
-    data = [vars(trans_cm)[i] for i in chimerge_params] + [statsdict[i] for i in statsdict] + [statsdict_val[i] for i in statsdict_val]
+    columns = [i.split('__')[1] for i in chimerge_params] + ['C','tol','max_iter'] + ['n_iter','refit_time']
+    data = [vars(trans_cm)[i] for i in chimerge_params] + [grid_search.best_params_['C'],grid_search.best_params_['tol'],grid_search.best_params_['max_iter']] + [model.lr_.n_iter_[0], grid_search.refit_time_]
     
-    columns += ['C']
-    data += [grid_search.best_params_['C']]
+    columns +=  list(statsdict.keys()) + list(statsdict_val.keys())
+    data += [statsdict[i] for i in statsdict] + [statsdict_val[i] for i in statsdict_val]
 
     columns += ['num_selected_features','selected_features']
     data += [len(selected_features), "['"+ "', '".join(selected_features)+"']"]
@@ -990,7 +1044,9 @@ for i in param_grid:
     temp = pd.DataFrame(np.array([data], dtype=object), columns=columns)
 
     statsdf = pd.read_excel(os.path.join(pPath, fn+'.xlsx')) if fn+'.xlsx' in os.listdir(pPath) else pd.DataFrame(columns=columns)
-    statsdf = pd.concat([statsdf, temp]).drop_duplicates(ignore_index=True)
+    statsdf = pd.concat([statsdf, temp])
+    if statsdf_drop_dup:
+        statsdf = statsdf.drop_duplicates(ignore_index=True)
     statsdf.to_excel(os.path.join(pPath, fn+'.xlsx'), index=False)
 
 
@@ -1041,5 +1097,11 @@ for i in param_grid:
 
     del sc_table['lo'], sc_table['hi']
 
-    sc_table.to_excel(os.path.join(pPath, 'scorecards','scorecard_AutoLoans'+chimerge_desc+'.xlsx'), index=False)
+    if save_scorecard:
+        sc_table.to_excel(os.path.join(pPath, 'scorecards','scorecard_AutoLoans'+chimerge_desc+'.xlsx'), index=False)
     sc_table
+
+    # break
+
+
+t1 = fc.timer_restart(t1, 'total time')
