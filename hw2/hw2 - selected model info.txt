@@ -1,0 +1,42 @@
+
+
+num_selected_features	          19
+selected_features	              ['appAge', 'appChkSv', 'appFinanceCo', 'appIncome', 'appOcc', 'appOrigScore', 'appResidence', 'cb90Ever', 'cbFICO', 'cbInq5Mos', 'cbMosAvg', 'cbMosDlq', 'cbMosInq', 'cbPctGood', 'cbTimeFile', 'cbTimeFileYears', 'cbUtilizn', 'dealLoanToVal', 'dealPctDown']
+
+threshold: 194 (picked by best accuracy in validation set)
+
+
+Scorecard:
+  filename: 'scorecards/scorecard_AutoLoans_conf-0.9_deci-1_init-100_m-3_max-5_min-1.xlsx'
+
+Evaluation:
+  filename: 'stats based on binning specs.xlsx'
+  
+  Hyperparameters:
+    ChiMerge (binning):
+        m	                  3
+        confidence_level	  0.9
+        max_intervals	      5
+        min_intervals	      1
+        initial_intervals	  100
+        decimal	            1
+    Logistic Regression
+        C	                  0.025
+        tol	                1E-12
+        n_iter	            24
+
+        other: default (https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html)
+
+
+  Scores, Thresholds:
+    train-roc_auc	                  0.710070857
+    train-average_precision	        0.730186573
+    train-best_accuracy	            0.658571429
+    train-best_accuracy_threshold	  187
+    val-roc_auc	                    0.682607111
+    val-average_precision	          0.712178414
+    val-best_accuracy	              0.651333333
+    val-best_accuracy_threshold	    194           <- chosen threshold (best accuracy in validation set)
+
+
+
